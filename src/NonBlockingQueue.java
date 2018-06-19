@@ -2,6 +2,7 @@
 import java.io.IOException;
 import java.util.Scanner;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -14,10 +15,7 @@ public class NonBlockingQueue
     public static void main(String[] args)
                         throws InterruptedException
     {
-        // Object of a class that has both produce()
-        // and consume() methods
         final PC pc = new PC();
-        // Create producer thread
         Thread t1 = new Thread(new Runnable()
         {
             @Override
@@ -33,7 +31,6 @@ public class NonBlockingQueue
                 }
             }
         });
-        // Create consumer thread
         Thread t2 = new Thread(new Runnable()
         {
             @Override
@@ -49,24 +46,18 @@ public class NonBlockingQueue
                 }
             }
         });
-        // Start both threads
         t1.start();
         t2.start();
-        // t1 finishes before t2
-        t1.join();
-        t2.join();
     }
- 
-    // This class has a Non-Blocking Queue, producer (adds items to queue
-    // and consumber (removes items).
+    
     public static class PC
     {
-        // Create a queue shared by producer and consumer
-        // Size of queue is 2.
+        
         ConcurrentLinkedQueue<Integer> queue = new ConcurrentLinkedQueue<>();
+        ReentrantLock lock = new ReentrantLock();
         int capacity = 1;
  
-        // Function called by producer thread
+        
         public void produce() throws InterruptedException
         {
             int value = 0;
@@ -74,46 +65,47 @@ public class NonBlockingQueue
             {
                 synchronized (this)
                 {
-                    // producer thread waits while queue
-                    // is full
-                    while (queue.size()==capacity)
-                        wait();
-                    System.out.println("Producer produced-"+ value);
-                    // to insert the jobs in the queue
-                    queue.add(value++);
-                    // notifies the consumer thread that
-                    // now it can start consuming
-                    exitNote();
-                    notify();
+                    lock.lock();
+                    try {
+                        while (queue.size()==capacity)
+                        lock.newCondition().await();
+                        System.out.println("Producer produced-"+ value);
+                        queue.offer(value++);
+                        exitNote();
+                        lock.newCondition().signalAll();
+                    }finally{
+                        lock.unlock();
+                    }
+                    
                 }
             }
         }
-        // Function called by consumer thread
         public void consume() throws InterruptedException
         {
             while (true)
             {
                 synchronized (this)
                 {
-                    // consumer thread waits while queue
-                    // is empty
-                    while (queue.isEmpty())
-                        wait();
-                    //to retrive the ifrst job in the queue
-                    int val = queue.remove();
-                    System.out.println("Consumer consumed-"+ val+"\n");
-                    // Wake up producer thread
-                    exitNote();
-                    notify();
+                    lock.lock();
+                    try {
+                        while (queue.isEmpty())
+                            lock.newCondition().await();
+                        int val = queue.poll();
+                        System.out.println("Consumer consumed-"+ val+"\n");
+                        exitNote();
+                        lock.newCondition().signalAll();
+                    }finally{
+                        lock.unlock();
+                    }
                 }
             }
         }
         public void exitNote() throws InterruptedException{
-            
+            lock.tryLock();
             synchronized(this)
             {
                 try {
-                    Thread.sleep(5000);
+                    Thread.sleep(500);
                     if(System.in.available() != 0){
                         Scanner s = new Scanner(System.in);
                         if(s.nextLine().toLowerCase().equals("quit"))
@@ -122,6 +114,7 @@ public class NonBlockingQueue
                             System.exit(0);
                         }
                     }
+                    lock.unlock();
                 } catch (IOException ex) {
                     Logger.getLogger(NonBlockingQueue.class.getName()).log(Level.SEVERE, null, ex);
                 }
